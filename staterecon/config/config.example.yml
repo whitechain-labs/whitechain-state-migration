@@ -1,0 +1,93 @@
+config:
+  erc20:
+    - name: USDC
+      address: 0xF97B9Bf62916f1EB42Dd906a7254603e7b9FC4a7
+      addresses:
+        - 0xB43dD795732c1023D38fEa21b2472986C0975262
+        - 0x45C7CDB638079730F0314b322289883585C79aa6
+        - 0x94C9d55F064980ED1faf0ABB42f3548700619039
+        - 0x98f3d189f107a555602191e6a4dF4009f28b0A87
+        - 0xF86d2C4AAc2963dEc4C74ECeDfa1B214c867F87F
+        - 0x0cdAD8366e2be28AdF98b95B19Fe9c938fD59C8C
+        - 0xc2132B8f1327F99566a5195b3B4E919a89AB7406
+        - 0xf19133ee5b2EB7e49e99aa7dc2eDBc866a4e986B
+        - 0xF3c44cC9666AC69ab1d5Fd85b4Be6A0d4a09282f
+        - 0x0ed1Ba2Bb92C13Ee0c424B656D082387daCFF03C
+      storages:
+        - 0x6ce2e3ce15f13eb99755f3c3566ac84a3f299448fa49f76a6dc37ac871d8d7ca
+      #        - 0xstorageslot2
+      #        - 0xstorageslot3
+      rules:
+        - general # CANCEL_AUTHORIZATION_TYPEHASH, DOMAIN_SEPARATOR, PERMIT_TYPEHASH, RECEIVE_WITH_AUTHORIZATION_TYPEHASH, RECEIVE_WITH_AUTHORIZATION_TYPEHASH, TRANSFER_WITH_AUTHORIZATION_TYPEHASH, currency, version, symbol, name, decimals, totalSupply
+        - balance # balanceOf, nonces
+        - roles # blacklister, masterMinter, owner, pauser, rescuer
+        - codehash # eth_getProof → codeHash
+        - storagehash # eth_getProof → storageHash
+    - name: USDT
+      address: 0xF95604a4034d8407d3F1256De56C9ae37F299cb8
+      addresses:
+        - 0xB43dD795732c1023D38fEa21b2472986C0975262
+        - 0x45C7CDB638079730F0314b322289883585C79aa6
+        - 0x94C9d55F064980ED1faf0ABB42f3548700619039
+        - 0x98f3d189f107a555602191e6a4dF4009f28b0A87
+        - 0xF86d2C4AAc2963dEc4C74ECeDfa1B214c867F87F
+        - 0x0cdAD8366e2be28AdF98b95B19Fe9c938fD59C8C
+        - 0xc2132B8f1327F99566a5195b3B4E919a89AB7406
+        - 0xf19133ee5b2EB7e49e99aa7dc2eDBc866a4e986B
+        - 0xF3c44cC9666AC69ab1d5Fd85b4Be6A0d4a09282f
+        - 0x0ed1Ba2Bb92C13Ee0c424B656D082387daCFF03C
+      #      storages:
+      #        - 0xstorageslot1
+      #        - 0xstorageslot2
+      #        - 0xstorageslot3
+      rules:
+        - general # CANCEL_AUTHORIZATION_TYPEHASH, DOMAIN_SEPARATOR, PERMIT_TYPEHASH, RECEIVE_WITH_AUTHORIZATION_TYPEHASH, RECEIVE_WITH_AUTHORIZATION_TYPEHASH, TRANSFER_WITH_AUTHORIZATION_TYPEHASH, currency, version, symbol, name, decimals, totalSupply
+        - balance # balanceOf, nonces
+        - roles # blacklister, masterMinter, owner, pauser, rescuer
+        - codehash # eth_getProof → codeHash
+        - storagehash # eth_getProof → storageHash
+    - name: WWBT
+      address: 0xb044a2a1e3C3deb17e3602bF088811d9bDc762EA
+      addresses:
+        - 0xB43dD795732c1023D38fEa21b2472986C0975262
+        - 0xcE63BCA3f6A90d557973D159ae92FeC4a0Dd0670
+        - 0x28aA025Ecd975d8ccD7598079E676F235d22f9d6
+        - 0x51bEc20f54c6b30327924A1f175B3aF5F731fa53
+        - 0x566f0E61955b8802add1e715eDf736B4e0fE4884
+        - 0x5Dd7362CeB01e8B7975Cfe52fBA486481737CB79
+        - 0xF9F81a43893f2b9707D237eC856bF840585dD8E0
+        - 0xBCA0e16E63142Eb1C39A6a77db4D086350d1f430
+        - 0xFfD76ff981cc7EA15EE2F67680815763C4C7683E
+        - 0x3B41fDa4Bd444baB53383eda431D4026f80A1e61
+      #      storages:
+      #        - 0xstorageslot1
+      #        - 0xstorageslot2
+      #        - 0xstorageslot3
+      rules:
+        - general # CANCEL_AUTHORIZATION_TYPEHASH, DOMAIN_SEPARATOR, PERMIT_TYPEHASH, RECEIVE_WITH_AUTHORIZATION_TYPEHASH, RECEIVE_WITH_AUTHORIZATION_TYPEHASH, TRANSFER_WITH_AUTHORIZATION_TYPEHASH, currency, version, symbol, name, decimals, totalSupply
+        - balance # balanceOf, nonces
+        - roles # blacklister, masterMinter, owner, pauser, rescuer
+        - codehash # eth_getProof → codeHash
+        - storagehash # eth_getProof → storageHash
+  erc721:
+    - name: DWD
+      address: 0xaaE5628339583dD86Ef1B1874306f29B60DB289d
+      addresses:
+        - 0x69Ef19C4cA9798DE287a93c06FBAA1243D0c4F58
+        - 0x8DB72ea1b721717533c987C3d7ee9EdD6bc5560c
+        - 0xD51BA5FD50841D312dDD0b35AD983258F73AdE7B
+        - 0x447341eD6F3169ab818587f0569984A2768e8ba3
+        - 0x0c6e5621cC854B18A9BE775D5aAC919636dD6fAA
+        - 0x382910AC2973Fc1C9Ea01301df43Ad162BCC30FD
+        - 0xAaEE1d1413607CFeb11D72F20258D04b2CC03153
+        - 0x72f1bd3ECAa6a594d7905924E575eda8c69e7F45
+        - 0xe1CC35544d4091062cEAD6d2BA563639952541C2
+      #      storages:
+      #        - 0xstorageslot1
+      #        - 0xstorageslot2
+      #        - 0xstorageslot3
+      rules:
+        - general # symbol, name, paused
+        - balance # balanceOf
+        - codehash # eth_getProof → codeHash
+        - storagehash # eth_getProof → storageHash

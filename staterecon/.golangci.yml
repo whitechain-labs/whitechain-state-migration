@@ -1,0 +1,73 @@
+run:
+  timeout: 5m
+  issues-exit-code: 1
+
+linters:
+  enable:
+    - staticcheck
+    - goimports
+    - testifylint
+    - bodyclose
+    - revive
+    - govet
+    - unconvert
+    - gocyclo
+    - dupl
+    - misspell
+    - unparam
+    - unused
+    - typecheck
+    - ineffassign
+    - stylecheck
+    - gochecknoinits
+    - gocritic
+    - nakedret
+    - gosimple
+    - prealloc
+    - forbidigo
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: ^print(ln)?$
+          msg: "use a proper logger instead of println"
+
+linters-settings:
+  revive:
+    ignore-generated: false
+    rules:
+      - name: empty-lines
+        arguments: ["after-func", 0]
+      - name: empty-lines
+        arguments: ["before-block", 0]
+
+  goimports:
+    local-prefixes: github.com/whitechainio/whitechain-utils/staterecon
+
+  gocyclo:
+    min-complexity: 10
+
+  dupl:
+    threshold: 100
+
+  misspell:
+    locale: "US"
+
+  gocritic:
+    enabled-checks:
+      - rangeValCopy
+      - hugeParam
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - revive
+        - dupl
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: true
+  formats: colored-line-number
+
+output:
+  print-issued-lines: true
+  print-linter-name: true

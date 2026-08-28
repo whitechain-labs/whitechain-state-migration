@@ -1,0 +1,42 @@
+# Secrets and environment
+.env
+.env.*
+!.env.example
+*.key
+keys/
+
+# Migration artefacts (large, distributed separately)
+state_dump*.json
+dump*.json
+alloc*.json
+genesis*.json
+rollup*.json
+l1-addresses.json
+l2-deploy-config.json
+state.json
+*.bin.gz
+prestate*.json
+
+# Reconciliation output
+*.csv
+out/
+token_out/
+output/
+
+# Tooling configs derived from examples
+staterecon/config/config.yml
+staterecon/config/token-config.yml
+staterecon/staterecon
+staterecon/tokenrecon
+staterecon/tokensync
+
+# Node / Hardhat
+node_modules/
+artifacts/
+cache/
+typechain-types/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
