@@ -1,4 +1,4 @@
-module github.com/whitechainio/whitechain-utils/staterecon
+module github.com/whitechain-labs/whitechain-state-migration/staterecon
 
 go 1.25.7
 

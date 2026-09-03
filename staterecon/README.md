@@ -124,7 +124,7 @@ updates only tokens with both `holder_count = 0` and `transfer_count = 0`.
 
 ```bash
 ./tokensync \
-  --old-explorer-url http://141.94.241.125 \
+  --old-explorer-url http://<legacy-explorer-host> \
   --blockscout-dsn 'postgres://user:pass@blockscout-db.internal:5432/blockscout?sslmode=disable' \
   --config config/token-config.yml
 ```
