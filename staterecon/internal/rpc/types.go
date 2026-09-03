@@ -5,7 +5,7 @@ import (
 
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/models"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/models"
 )
 
 type AccountRangePage struct {

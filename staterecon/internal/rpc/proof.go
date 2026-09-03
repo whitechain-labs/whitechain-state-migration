@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/models"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/models"
 )
 
 // FetchProofs calls eth_getProof for each address and returns normalized proof data.
