@@ -214,6 +214,12 @@ streamed to `alloc.json` as the dump is read, so memory stays flat regardless of
 the result is written with one alloc entry per line. A failed run deletes its partial `alloc.json`
 rather than leaving truncated JSON behind.
 
+The 30 hardhat dev accounts of the `test test test test test test test test test test test junk`
+mnemonic are dropped here, from the dump and from the base allocation alike. `op-node genesis l2`
+refuses to build a genesis that contains any of them while `fundDevAccounts = false` (Step 1), and a
+devnet-era account with a zero balance and a non-zero nonce is enough to trip that check. Use
+`--keep-dev-accounts` only when the deploy config sets `fundDevAccounts = true`.
+
 Checks:
 
 - [ ] `jq empty alloc.json` passes.
@@ -240,6 +246,8 @@ Checks:
               || echo "MISSING OR CODELESS: $a"
           done
       ```
+- [ ] The dev-account report in the run log was read. Every dropped address is listed there, and
+      none of them holds value that must reach L2.
 - [ ] Spot-check a few high-value L1 accounts: balance, nonce, code and a known storage slot.
 - [ ] `alloc.json` is backed up.
 

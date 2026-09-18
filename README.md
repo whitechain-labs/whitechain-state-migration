@@ -92,6 +92,7 @@ node scripts/dump-to-alloc.mjs \
 | `--input <path>` | Required. JSONL state dump from `geth dump <block>`. The header line (`{"root":"0x..."}`) is ignored. |
 | `--output <path>` | Output allocation JSON. Defaults to stdout. |
 | `--no-prune-empty` | Keep accounts whose balance, nonce, code and storage are all empty. By default such accounts are dropped. |
+| `--keep-dev-accounts` | Keep the hardhat dev accounts. By default they are dropped from the dump and from the base allocation – see [Known limitations](#known-limitations). |
 
 Behaviour worth knowing:
 
@@ -99,6 +100,9 @@ Behaviour worth knowing:
   and values are left-padded to 32 bytes.
 - Dump entries **overwrite** entries of the same address in the base genesis allocation. Verify after
   the merge that every OP Stack predeploy (`0x42000000000000000000000000000000000000xx`) survived.
+- The 30 hardhat dev accounts are dropped from the dump and from the base allocation, because
+  `op-node genesis l2` rejects an allocation that contains any of them while the deploy config has
+  `fundDevAccounts = false`. Every drop is reported on stderr.
 - The output is a JSON object written with **one alloc entry per line**:
 
   ```json
@@ -134,7 +138,7 @@ node scripts/insert-alloc-into-config.mjs \
 | `--config <path>` | Required. Genesis config JSON. |
 | `--alloc <path>` | Required. Allocation map with **one entry per line**, as written by `dump-to-alloc.mjs`. Any other line shape is a hard error – see [Known limitations](#known-limitations). |
 | `--output <path>` | Output file. Defaults to stdout. |
-| `--pretty` | Pretty-print the output. Slower and larger. |
+| `--pretty` | Indent everything outside `alloc` and write one allocation entry per line. Entry values stay on their line: expanding every account and storage slot multiplies the size of a full-state genesis several times over. Without the flag the whole genesis is a single line. |
 | `--stats` | Print how many entries were added and how many were skipped as already present. |
 | `--overwrite-existing` | Let allocation entries win over entries already in `config.alloc`. Default is to keep the existing entry. |
 | `--progress` / `--progress-interval-ms <ms>` | Progress reporting to stderr. |
@@ -184,7 +188,35 @@ node scripts/insert-alloc-into-config.mjs \
 
    The authoritative list for a given deployment is not this document but the base allocation
    itself: `jq -r '.alloc | keys[]' genesis.base.json`.
-3. **`insert-alloc-into-config.mjs` reads only one-entry-per-line allocation files.** Its streaming
+3. **Hardhat dev accounts are dropped by default.** `op-node genesis l2` derives the 30 accounts of
+   the hardhat/foundry test mnemonic (`test test test test test test test test test test test junk`,
+   `m/44'/60'/0'/0/0` … `m/44'/60'/0'/0/29`) and refuses to build a genesis while the allocation
+   contains any of them and the deploy config has `fundDevAccounts = false`:
+
+   ```
+   deploy config mismatch with allocs. Deploy config fundDevAccounts: false, actual allocs: [0xf39F...2266]
+   ```
+
+   What it checks is presence, not funding – a devnet leaves a zero-balance, nonce-1 account behind
+   on L1, and that account alone fails the run. `dump-to-alloc.mjs` therefore drops those 30
+   addresses from the dump **and** from the base allocation, and reports every drop:
+
+   ```
+   dump-to-alloc: DEV ACCOUNT 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 - dropping the L1 dump account
+   dump-to-alloc:     dump: balance=0x0 nonce=0x1 code=none storage=none
+   dump-to-alloc: dropped hardhat dev accounts: 1 from the dump, 0 from the base genesis allocation:
+   dump-to-alloc:     dump 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
+   ```
+
+   Whatever those accounts hold on L1 is not carried to L2. If one of them holds real value, rerun
+   with `--keep-dev-accounts` and set `fundDevAccounts = true` in the deploy config – `op-node`
+   rejects the allocation otherwise.
+
+   Two addresses that upstream funds alongside the dev accounts are **not** dropped, because the
+   genesis check ignores them: the geth test account
+   `0x71562b71999873DB5b286dF957af199Ec94617F7` and the deterministic-deployment proxy deployer
+   `0x3fab184622dc19b6109349b94811493bf2a45362`, which can hold real L1 state.
+4. **`insert-alloc-into-config.mjs` reads only one-entry-per-line allocation files.** Its streaming
    parser requires every entry on its own line (`"0x<40 hex>":{...}`), which is exactly what
    `dump-to-alloc.mjs` writes – the two chain without an intermediate step. Pretty-printed
    allocations, and allocations written as a single line, are **rejected**: the script prints the
