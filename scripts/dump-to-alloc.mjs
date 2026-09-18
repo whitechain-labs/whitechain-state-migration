@@ -42,6 +42,16 @@
  * - A run without collisions says so explicitly, so silence is never ambiguous.
  * - Reports go to stderr, so they stay out of the allocation even when it is streamed to stdout.
  *
+ * Hardhat dev accounts:
+ * - The 30 accounts derived from the hardhat/foundry test mnemonic are dropped by default, from the
+ *   dump and from the base genesis allocation alike, because `op-node genesis l2` refuses to build a
+ *   genesis whose allocation contains any of them while the deploy config has
+ *   `fundDevAccounts = false`. Presence is what it checks, not funding: the zero-balance,
+ *   nonce-1 account a devnet leaves behind on L1 is enough to fail the run.
+ * - Every drop is reported, because it means the L1 balance and nonce of that account are not
+ *   carried to L2. `--keep-dev-accounts` keeps them, and then the deploy config must set
+ *   `fundDevAccounts = true`.
+ *
  * Usage:
  *   node scripts/dump-to-alloc.mjs --genesis genesis.json --input state.jsonl --output alloc.json
  *
@@ -50,10 +60,59 @@
  *   --input <path>         (required) dump json file
  *   --output <path>        write alloc json to file (default: stdout)
  *   --no-prune-empty       keep accounts with empty balance/nonce/code/storage
+ *   --keep-dev-accounts    keep the hardhat dev accounts instead of dropping them
  */
 import fs from "node:fs";
 import readline from "node:readline";
 import path from "node:path";
+
+/**
+ * The 30 accounts derived from the hardhat/foundry test mnemonic
+ * ("test test test test test test test test test test test junk") at m/44'/60'/0'/0/0 .. /29.
+ *
+ * `op-node genesis l2` derives this exact set (`RetrieveDevAccounts` in op-chain-ops/genesis) and
+ * aborts with "deploy config mismatch with allocs" when the allocation holds any of them and the
+ * deploy config has `fundDevAccounts = false`.
+ *
+ * Deliberately absent, although upstream funds them alongside the dev accounts: the geth test
+ * account `0x71562b71999873db5b286df957af199ec94617f7` and the deterministic-deployment proxy
+ * deployer `0x3fab184622dc19b6109349b94811493bf2a45362`. The genesis check ignores both, and the
+ * create2 deployer is a real address that can hold real L1 state.
+ */
+const DEV_ACCOUNTS = new Set([
+  // m/44'/60'/0'/0/0 .. /19 - the accounts hardhat and anvil print on start
+  "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+  "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+  "0x15d34aaf54267db7d7c367839aaf71a00a2c6a65",
+  "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc",
+  "0x976ea74026e726554db657fa54763abd0c3a0aa9",
+  "0x14dc79964da2c08b23698b3d3cc7ca32193d9955",
+  "0x23618e81e3f5cdf7f54c3d65f7fbc0abf5b21e8f",
+  "0xa0ee7a142d267c1f36714e4a8f75612f20a79720",
+  "0xbcd4042de499d14e55001ccbb24a551f3b954096",
+  "0x71be63f3384f5fb98995898a86b02fb2426c5788",
+  "0xfabb0ac9d68b0b445fb7357272ff202c5651694a",
+  "0x1cbd3b2770909d4e10f157cabc84c7264073c9ec",
+  "0xdf3e18d64bc6a983f673ab319ccae4f1a57c7097",
+  "0xcd3b766ccdd6ae721141f452c550ca635964ce71",
+  "0x2546bcd3c84621e976d8185a91a922ae77ecec30",
+  "0xbda5747bfd65f08deb54cb465eb87d40e51b197e",
+  "0xdd2fd4581271e230360230f9337d5c0430bf44c0",
+  "0x8626f6940e2eb28930efb4cef49b2d1f2c9c1199",
+  // m/44'/60'/0'/0/20 .. /29 - funded by L2Genesis.s.sol alongside the 20 above
+  "0x09db0a93b389bef724429898f539aeb7ac2dd55f",
+  "0x02484cb50aac86eae85610d6f4bf026f30f6627d",
+  "0x08135da0a343e492fa2d4282f2ae34c6c5cc1bbe",
+  "0x5e661b79fe2d3f6ce70f5aac07d8cd9abb2743f1",
+  "0x61097ba76cd906d2ba4fd106e757f7eb455fc295",
+  "0xdf37f81daad2b0327a0a50003740e1c935c70913",
+  "0x553bc17a05702530097c3677091c5bb47a3a7931",
+  "0x87bdce72c06c21cd96219bd8521bdf1f42c78b5e",
+  "0x40fc963a729c542424cd800349a7e4ecc4896624",
+  "0x9dcce783b6464611f38631e6c851bf441907c710",
+]);
 
 // Set while an output file is being written, so a failed run does not leave a truncated
 // (syntactically invalid) alloc file behind.
@@ -65,6 +124,7 @@ function parseArgs(argv) {
     input: undefined,
     output: undefined,
     pruneEmpty: true,
+    keepDevAccounts: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -73,6 +133,7 @@ function parseArgs(argv) {
     else if (a === "--input") args.input = argv[++i];
     else if (a === "--output") args.output = argv[++i];
     else if (a === "--no-prune-empty") args.pruneEmpty = false;
+    else if (a === "--keep-dev-accounts") args.keepDevAccounts = true;
     else if (a === "--help" || a === "-h") {
       return { ...args, help: true };
     } else {
@@ -226,6 +287,7 @@ async function main() {
       "  --input <path>         (required) dump jsonl file",
       "  --output <path>        write alloc json to file (default: stdout)",
       "  --no-prune-empty       keep accounts with empty balance/nonce/code/storage",
+      "  --keep-dev-accounts    keep the hardhat dev accounts (op-node then needs fundDevAccounts = true)",
       "",
       "Output is a JSON object with one alloc entry per line, streamed as the dump is read.",
       "",
@@ -252,6 +314,10 @@ async function main() {
   // allocation, so collecting every one of them costs nothing even on a full mainnet dump.
   const replacedBaseEntries = [];
   const keptBaseEntries = [];
+
+  // Hardhat dev accounts dropped on the way out, by where they came from.
+  const droppedDevDumpAccounts = [];
+  const droppedDevBaseEntries = [];
 
   const outputPath = args.output ? path.resolve(process.cwd(), args.output) : undefined;
   const outStream = outputPath
@@ -296,6 +362,22 @@ async function main() {
     if (typeof obj.address !== "string") return; // header/meta records may omit address
 
     const addr = normalizeAddress(obj.address);
+
+    // A dev account is dropped whatever it holds, and its base genesis entry goes with it: leaving
+    // either one in the allocation is what makes `op-node genesis l2` refuse to build the genesis.
+    if (!args.keepDevAccounts && DEV_ACCOUNTS.has(addr)) {
+      const shadowedBaseEntry = pendingBaseAlloc.get(addr);
+      droppedDevDumpAccounts.push(addr);
+      report(`DEV ACCOUNT ${addr} - dropping the L1 dump account`);
+      reportDetail(`dump: ${describeAllocEntry(obj)}`);
+      if (shadowedBaseEntry !== undefined) {
+        droppedDevBaseEntries.push(addr);
+        pendingBaseAlloc.delete(addr);
+        reportDetail(`base genesis entry dropped as well: ${describeAllocEntry(shadowedBaseEntry)}`);
+      }
+      return;
+    }
+
     const balance = toHexQuantity(obj.balance ?? "0");
     const nonce = toHexQuantity(obj.nonce ?? "0");
 
@@ -392,7 +474,17 @@ async function main() {
 
   // Base allocation entries the dump did not replace. The dump is streamed first, so these end up
   // at the tail; JSON object key order is not significant for geth or for op-node.
-  for (const [addr, entry] of pendingBaseAlloc) writeAllocPair(addr, entry);
+  let carriedOver = 0;
+  for (const [addr, entry] of pendingBaseAlloc) {
+    if (!args.keepDevAccounts && DEV_ACCOUNTS.has(addr)) {
+      droppedDevBaseEntries.push(addr);
+      report(`DEV ACCOUNT ${addr} - dropping the base genesis entry`);
+      reportDetail(`base: ${describeAllocEntry(entry)}`);
+      continue;
+    }
+    writeAllocPair(addr, entry);
+    carriedOver++;
+  }
 
   writeChunk("\n}\n");
 
@@ -408,11 +500,32 @@ async function main() {
 
   // Summary last, so it is what an operator sees after a long run. Reported unconditionally: with
   // no collisions, silence would be indistinguishable from a run that never checked.
-  const carriedOver = pendingBaseAlloc.size;
   report(
     `base genesis entries: ${baseAllocTotal} total, ${carriedOver} carried over, ` +
-      `${replacedBaseEntries.length} replaced by dump accounts`,
+      `${replacedBaseEntries.length} replaced by dump accounts, ` +
+      `${droppedDevBaseEntries.length} dropped as dev accounts`,
   );
+
+  if (args.keepDevAccounts) {
+    report(
+      "dev-account filter disabled by --keep-dev-accounts: any hardhat dev account in the dump or " +
+        "the base allocation is still there",
+    );
+    report("`op-node genesis l2` accepts that only with fundDevAccounts = true in the deploy config");
+  } else if (droppedDevDumpAccounts.length > 0 || droppedDevBaseEntries.length > 0) {
+    report(
+      `dropped hardhat dev accounts: ${droppedDevDumpAccounts.length} from the dump, ` +
+        `${droppedDevBaseEntries.length} from the base genesis allocation:`,
+    );
+    for (const addr of droppedDevDumpAccounts) reportDetail(`dump ${addr}`);
+    for (const addr of droppedDevBaseEntries) reportDetail(`base ${addr}`);
+    report(
+      "their balance and nonce are not carried to L2; keeping them would make op-node reject the " +
+        "allocation while the deploy config has fundDevAccounts = false",
+    );
+  } else {
+    report("no hardhat dev accounts in the dump or in the base genesis allocation");
+  }
 
   if (replacedBaseEntries.length > 0) {
     report(`REPLACED ${replacedBaseEntries.length} base genesis entr${replacedBaseEntries.length === 1 ? "y" : "ies"}:`);
