@@ -13,6 +13,12 @@
  *   a bare `{` / `}` line. Any other line shape is a hard error: pretty-printed and single-line
  *   alloc files are rejected instead of being silently mis-parsed.
  *
+ * Output format:
+ * - By default the whole genesis is written on a single line (smallest file, fastest to write).
+ * - `--pretty` indents everything outside `alloc` the way `JSON.stringify(config, null, 2)` would,
+ *   and writes `alloc` as one entry per line. Entry values themselves stay on their line: expanding
+ *   every account and storage slot multiplies the size of a full-state genesis several times over.
+ *
  * Usage:
  *   node scripts/insert-alloc-into-config.mjs --config genesis.json --alloc alloc.json --output genesis.updated.json
  */
@@ -116,7 +122,7 @@ async function main() {
       "  --config <path>    genesis config JSON",
       "  --alloc <path>     alloc JSON map, one entry per line (dump-to-alloc.mjs output)",
       "  --output <path>    write updated config (default: stdout)",
-      "  --pretty            pretty-print output JSON (slower, larger)",
+      "  --pretty            indent the genesis config and put one alloc entry per line",
       "  --stats             show how many entries were added/skipped (slower)",
       "  --overwrite-existing overwrite existing config.alloc entries (faster)",
       "  --progress          print input-progress percent to stderr",
@@ -205,22 +211,36 @@ async function main() {
     }
   };
 
-  // Everything except `alloc`, re-emitted without its closing brace so that the streamed alloc can
-  // be appended. `head` is empty when `alloc` was the config's only key.
-  const head = JSON.stringify(config, (k, v) => (k === "alloc" ? undefined : v)).slice(1, -1);
-  writeChunk("{");
-  if (head !== "") writeChunk(`${head},`);
-  writeChunk(args.pretty ? '"alloc":{\n' : '"alloc":{');
+  // Everything except `alloc`, re-emitted without its enclosing braces so that the streamed alloc
+  // can be appended. `head` is empty when `alloc` was the config's only key. With `--pretty` the
+  // head is indented like a normal `JSON.stringify(config, null, 2)` document; only the `alloc`
+  // entries stay compact, one per line.
+  const head = JSON.stringify(
+    config,
+    (k, v) => (k === "alloc" ? undefined : v),
+    args.pretty ? 2 : undefined,
+  )
+    .slice(1, -1)
+    .replace(/\s+$/, "");
 
+  writeChunk("{");
+  if (head !== "") writeChunk(args.pretty ? `${head},\n` : `${head},`);
+  else if (args.pretty) writeChunk("\n");
+  writeChunk(args.pretty ? '  "alloc": {\n' : '"alloc":{');
+
+  // Alloc entries sit one level deeper than `alloc` itself, hence four spaces. Entry values stay
+  // on a single line: fully expanding millions of accounts multiplies the file size several times
+  // over for no readability gain, and one entry per line is the shape this script's own parser
+  // (and `dump-to-alloc.mjs`) speaks.
   let firstAllocEntry = true;
   const writeAllocPair = (key, valueJson) => {
     const pair =
       !firstAllocEntry
         ? args.pretty
-          ? `,\n  "${key}":${valueJson}`
+          ? `,\n    "${key}": ${valueJson}`
           : `,"${key}":${valueJson}`
         : args.pretty
-          ? `  "${key}":${valueJson}`
+          ? `    "${key}": ${valueJson}`
           : `"${key}":${valueJson}`;
 
     firstAllocEntry = false;
@@ -392,8 +412,8 @@ async function main() {
   }
 
   // Close `alloc` object and then the outer config object.
-  if (args.pretty) writeChunk("\n}\n}\n");
-  else writeChunk("\n}}\n");
+  if (args.pretty) writeChunk(firstAllocEntry ? "  }\n}\n" : "\n  }\n}\n");
+  else writeChunk("}}\n");
 
   if (outStream !== process.stdout) {
     await new Promise((resolve, reject) => {
