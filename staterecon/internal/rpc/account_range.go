@@ -11,7 +11,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/models"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/models"
 )
 
 func (c *Client) AccountRange(ctx context.Context, block string, start string, maxResults int) (AccountRangePage, error) {

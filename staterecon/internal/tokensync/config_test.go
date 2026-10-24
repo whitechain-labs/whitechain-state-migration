@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/tokenconfig"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/tokenconfig"
 )
 
 func TestLoadConfigTargets(t *testing.T) {
