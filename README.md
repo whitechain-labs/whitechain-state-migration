@@ -99,6 +99,9 @@ Behaviour worth knowing:
   and values are left-padded to 32 bytes.
 - Dump entries **overwrite** entries of the same address in the base genesis allocation. Verify after
   the merge that every OP Stack predeploy (`0x42000000000000000000000000000000000000xx`) survived.
+- geth's dump writes the zero-address account without an `address` field. The converter restores it
+  from its trie key and reports `ZERO ADDRESS ... restored`; any other record without an address is a
+  missing preimage and fails the run, so no account is dropped silently.
 - The output is a JSON object written with **one alloc entry per line**:
 
   ```json

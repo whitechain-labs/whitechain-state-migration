@@ -152,11 +152,13 @@ head -1 alloc.json                       # {
 tail -1 alloc.json                       # }
 awk 'END{print NR-2}' alloc.json         # number of allocation entries
 
-# Dump accounts that went in.
-grep -c '"address"' ./state_dump_${SNAPSHOT_BLOCK}.json
+# Dump accounts that went in. Count "balance", not "address": geth writes the zero-address account
+# without an address field. Compare with the converter's "dump accounts:" summary line.
+grep -c '"balance"' ./state_dump_${SNAPSHOT_BLOCK}.json
+grep 'dump accounts:' alloc-collisions.log
 
 # Collisions, straight from the run.
-grep -E 'COLLISION|REPLACED|no address collisions' alloc-collisions.log
+grep -E 'COLLISION|REPLACED|ZERO ADDRESS|no address collisions' alloc-collisions.log
 
 # Independent cross-check: every base entry that had code still has code.
 jq -r '.alloc | to_entries[] | select(.value.code) | .key' "$WORKDIR/genesis.base.json" \

@@ -217,13 +217,20 @@ rather than leaving truncated JSON behind.
 Checks:
 
 - [ ] `jq empty alloc.json` passes.
-- [ ] Entry count is `base predeploys + dump accounts - pruned empty accounts`:
+- [ ] Entry count is `base predeploys + dump accounts - pruned empty accounts - replaced base entries`.
+      Replaced entries are the `REPLACED` list in the run summary; 0x0 is one of them whenever it
+      holds state, because op-deployer funds 0x00..00–0x00..ff with 1 wei each:
 
       ```bash
       jq 'length' alloc.json
       jq '.alloc | length' "$WORKDIR/genesis.json"
-      grep -c '"address"' "./state_dump_${BLOCK}.json"
+      grep -c '"balance"' "./state_dump_${BLOCK}.json"
       ```
+
+      Count dump accounts by `"balance"`, not `"address"`: geth writes the zero-address account
+      without an `address` field, so an `"address"` count comes up one short whenever 0x0 holds
+      state. The converter's own `dump accounts: N read, M pruned as empty` summary line gives the
+      same numbers.
 
       One entry per line means the count can also be taken without parsing the whole file, which
       matters once `alloc.json` runs to several gigabytes:
@@ -239,6 +246,12 @@ Checks:
             jq -e --arg a "$(echo "$a" | tr 'A-F' 'a-f')" '.[$a].code' alloc.json > /dev/null \
               || echo "MISSING OR CODELESS: $a"
           done
+      ```
+- [ ] If the zero address holds state at the snapshot block, the run logged `ZERO ADDRESS ... restored`
+      and `alloc.json` carries the L1 balance there, not the 1-wei base entry:
+
+      ```bash
+      grep '^"0x0000000000000000000000000000000000000000":' alloc.json
       ```
 - [ ] Spot-check a few high-value L1 accounts: balance, nonce, code and a known storage slot.
 - [ ] `alloc.json` is backed up.
