@@ -42,6 +42,13 @@
  * - A run without collisions says so explicitly, so silence is never ambiguous.
  * - Reports go to stderr, so they stay out of the allocation even when it is streamed to stdout.
  *
+ * Records without an address:
+ * - geth's iterative dump never writes `address` for the zero address (it cannot tell it apart from
+ *   a missing preimage), only its secure trie `key`. Such a record is restored to
+ *   0x0000000000000000000000000000000000000000 and goes through the same collision handling.
+ * - Any other account record without an address is a missing preimage. It cannot be migrated, so the
+ *   run fails instead of silently dropping the account and its balance.
+ *
  * Usage:
  *   node scripts/dump-to-alloc.mjs --genesis genesis.json --input state.jsonl --output alloc.json
  *
@@ -183,6 +190,36 @@ function describeAllocEntry(entry) {
   ].join(" ");
 }
 
+// keccak256(0x0000000000000000000000000000000000000000): the secure trie key geth writes for the
+// zero address, whose dump record carries no `address` field.
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const ZERO_ADDRESS_TRIE_KEY = "0x5380c7b7ae81a58eb98d9c78de4a1fd7fd9535fc953ed2be602daaa41767312a";
+
+// Fields only an account record carries. The `{ "root": ... }` header has none of them; `root` alone
+// does not tell the two apart, since account records carry their storage root under the same name.
+const ACCOUNT_FIELDS = ["address", "key", "balance", "nonce", "codeHash", "code", "storage"];
+
+function isAccountRecord(obj) {
+  return ACCOUNT_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(obj, f));
+}
+
+/**
+ * Address of a dump account record. Records without `address` are resolved through their trie key;
+ * anything that cannot be resolved fails the run, so no account is ever dropped silently.
+ */
+function resolveRecordAddress(obj) {
+  if (typeof obj.address === "string") return normalizeAddress(obj.address);
+  if (obj.address !== undefined && obj.address !== null) {
+    throw new Error(`Invalid address field: ${JSON.stringify(obj.address)}`);
+  }
+  const key = typeof obj.key === "string" ? obj.key.toLowerCase() : undefined;
+  if (key === ZERO_ADDRESS_TRIE_KEY) return ZERO_ADDRESS;
+  throw new Error(
+    `Account record without an address (trie key ${key ?? "<none>"}): missing preimage. ` +
+      "Re-run the dump with --cache.preimages on a node that recorded them",
+  );
+}
+
 function report(line) {
   process.stderr.write(`dump-to-alloc: ${line}\n`);
 }
@@ -253,6 +290,11 @@ async function main() {
   const replacedBaseEntries = [];
   const keptBaseEntries = [];
 
+  // Dump accounts read and pruned, so the entry count can be checked against the run itself.
+  let dumpAccounts = 0;
+  let prunedAccounts = 0;
+  let zeroAddressRecovered = false;
+
   const outputPath = args.output ? path.resolve(process.cwd(), args.output) : undefined;
   const outStream = outputPath
     ? fs.createWriteStream(outputPath, { encoding: "utf8" })
@@ -293,9 +335,14 @@ async function main() {
   let lineNo = 0;
   const writeAccount = (obj) => {
     if (!obj || typeof obj !== "object") return;
-    if (typeof obj.address !== "string") return; // header/meta records may omit address
+    if (!isAccountRecord(obj)) return; // header/meta records
 
-    const addr = normalizeAddress(obj.address);
+    const addr = resolveRecordAddress(obj);
+    if (typeof obj.address !== "string") {
+      zeroAddressRecovered = true;
+      report(`ZERO ADDRESS ${addr} - restored from a dump record without an address field (trie key)`);
+    }
+    dumpAccounts++;
     const balance = toHexQuantity(obj.balance ?? "0");
     const nonce = toHexQuantity(obj.nonce ?? "0");
 
@@ -329,6 +376,7 @@ async function main() {
 
     // A pruned dump account leaves the base allocation entry for that address untouched.
     if (args.pruneEmpty && isEmptyAllocEntry(allocEntry)) {
+      prunedAccounts++;
       if (baseEntry !== undefined) {
         keptBaseEntries.push(addr);
         report(`COLLISION ${addr} - keeping the base genesis entry`);
@@ -409,6 +457,11 @@ async function main() {
   // Summary last, so it is what an operator sees after a long run. Reported unconditionally: with
   // no collisions, silence would be indistinguishable from a run that never checked.
   const carriedOver = pendingBaseAlloc.size;
+  report(
+    `dump accounts: ${dumpAccounts} read, ${prunedAccounts} pruned as empty, ` +
+      `${dumpAccounts - prunedAccounts} written` +
+      (zeroAddressRecovered ? " (including the zero address restored from its trie key)" : ""),
+  );
   report(
     `base genesis entries: ${baseAllocTotal} total, ${carriedOver} carried over, ` +
       `${replacedBaseEntries.length} replaced by dump accounts`,
