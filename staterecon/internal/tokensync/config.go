@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/models"
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/tokenconfig"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/models"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/tokenconfig"
 )
 
 type Config = tokenconfig.Config

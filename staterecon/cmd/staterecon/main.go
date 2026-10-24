@@ -8,8 +8,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/app"
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/cliutil"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/app"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/cliutil"
 )
 
 func main() {
