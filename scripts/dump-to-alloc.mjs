@@ -33,12 +33,19 @@
  *   with the size of the dump.
  *
  * Address collisions:
- * - An address defined by both the base genesis allocation and the dump is a collision. The dump
- *   account wins, which for an OP Stack predeploy means its code and storage are dropped in favour
- *   of the L1 account.
+ * - An address defined by both the base genesis allocation and the dump is a collision.
+ * - A base entry with code or storage is protected: an OP Stack predeploy proxy, implementation or
+ *   preinstall. Anyone can fund such an address on L1 for 1 wei, so an L1 account never replaces it.
+ *   The base code, storage and nonce are kept and the L1 balance is added to the base balance, so
+ *   the native supply is unchanged. An L1 account there with different code, with storage, or with
+ *   a nonce but no code cannot be merged safely and fails the run.
+ * - A base entry with neither code nor storage (op-deployer's 1-wei entries at 0x00..00-0x00..ff)
+ *   is replaced by the dump account.
  * - Every collision is reported on stderr, naming what was there and what replaced it, and listed
  *   again in a summary at the end of the run. The exception is a dump account that is empty and
  *   gets pruned: the base entry survives, and that outcome is reported too.
+ * - Before the run succeeds, every protected base address is checked to have been written exactly
+ *   once with its base code.
  * - A run without collisions says so explicitly, so silence is never ambiguous.
  * - Reports go to stderr, so they stay out of the allocation even when it is streamed to stdout.
  *
@@ -220,6 +227,48 @@ function resolveRecordAddress(obj) {
   );
 }
 
+/**
+ * True for a base entry the OP Stack owns: one with code or storage. Base entries are not trusted
+ * to spell fields consistently, so anything unreadable counts as protected.
+ */
+function isProtectedBaseEntry(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  try {
+    if (normalizeBytesHex(entry.code) !== "") return true;
+  } catch {
+    return true;
+  }
+  return !!entry.storage && typeof entry.storage === "object" && Object.keys(entry.storage).length > 0;
+}
+
+/**
+ * Merge an L1 dump account into the protected base entry at the same address: the base contract is
+ * kept and the L1 balance added to it. Throws when the L1 account cannot be merged safely.
+ */
+function mergeIntoProtectedEntry(addr, baseEntry, dumpEntry) {
+  const baseCode = normalizeBytesHex(baseEntry.code);
+  const dumpCode = normalizeBytesHex(dumpEntry.code);
+  if (dumpCode !== "" && dumpCode !== baseCode) {
+    throw new Error(
+      `L1 account at protected base address ${addr} has different code than the base genesis; ` +
+        "resolve it by hand before migrating",
+    );
+  }
+  if (dumpEntry.storage) {
+    throw new Error(
+      `L1 account at protected base address ${addr} has storage; resolve it by hand before migrating`,
+    );
+  }
+  if (dumpCode === "" && !isZeroQuantity(dumpEntry.nonce)) {
+    throw new Error(
+      `L1 account at protected base address ${addr} has nonce ${dumpEntry.nonce} but no code; ` +
+        "resolve it by hand before migrating",
+    );
+  }
+  const balance = BigInt(toHexQuantity(baseEntry.balance ?? "0")) + BigInt(dumpEntry.balance);
+  return { ...baseEntry, balance: bigintToHexQuantity(balance) };
+}
+
 function report(line) {
   process.stderr.write(`dump-to-alloc: ${line}\n`);
 }
@@ -289,6 +338,15 @@ async function main() {
   // allocation, so collecting every one of them costs nothing even on a full mainnet dump.
   const replacedBaseEntries = [];
   const keptBaseEntries = [];
+  const protectedMerges = [];
+
+  // Code of every protected base entry, checked off as the entry is written. Anything left at the
+  // end, or written twice, or written with other code, fails the run.
+  const protectedBaseCode = new Map();
+  for (const [addr, entry] of pendingBaseAlloc) {
+    if (isProtectedBaseEntry(entry)) protectedBaseCode.set(addr, normalizeBytesHex(entry.code));
+  }
+  const protectedWritten = new Set();
 
   // Dump accounts read and pruned, so the entry count can be checked against the run itself.
   let dumpAccounts = 0;
@@ -326,6 +384,19 @@ async function main() {
   // and the document as a whole is still valid JSON.
   let firstEntry = true;
   const writeAllocPair = (addr, entry) => {
+    if (protectedBaseCode.has(addr)) {
+      if (protectedWritten.has(addr)) {
+        report(`COLLISION ${addr} - REJECTED, a second dump record for a protected base genesis contract`);
+        reportDetail(`dump: ${describeAllocEntry(entry)}`);
+        throw new Error(`Protected base address ${addr} would be written twice`);
+      }
+      if (normalizeBytesHex(entry.code) !== protectedBaseCode.get(addr)) {
+        report(`COLLISION ${addr} - REJECTED, the base genesis contract would lose its code`);
+        reportDetail(`written: ${describeAllocEntry(entry)}`);
+        throw new Error(`Protected base address ${addr} would lose its base genesis code`);
+      }
+      protectedWritten.add(addr);
+    }
     writeChunk(`${firstEntry ? "" : ",\n"}"${addr}":${JSON.stringify(entry)}`);
     firstEntry = false;
   };
@@ -386,7 +457,30 @@ async function main() {
       return;
     }
 
-    // A dump account replaces the base allocation entry for the same address.
+    // A protected base entry (predeploy, implementation, preinstall) keeps its contract; only the L1
+    // balance is carried over.
+    if (baseEntry !== undefined && protectedBaseCode.has(addr)) {
+      let merged;
+      try {
+        merged = mergeIntoProtectedEntry(addr, baseEntry, allocEntry);
+      } catch (e) {
+        // Logged like every other collision, so the failing one is not only in the error message.
+        report(`COLLISION ${addr} - REJECTED, the L1 account cannot be merged into the base genesis contract`);
+        reportDetail(`base: ${describeAllocEntry(baseEntry)}`);
+        reportDetail(`dump: ${describeAllocEntry(allocEntry)}`);
+        throw e;
+      }
+      protectedMerges.push(addr);
+      report(`COLLISION ${addr} - PROTECTED, keeping the base genesis contract, carrying over the L1 balance`);
+      reportDetail(`base: ${describeAllocEntry(baseEntry)}`);
+      reportDetail(`dump: ${describeAllocEntry(allocEntry)}`);
+      reportDetail(`result: ${describeAllocEntry(merged)}`);
+      pendingBaseAlloc.delete(addr);
+      writeAllocPair(addr, merged);
+      return;
+    }
+
+    // A dump account replaces a base entry that holds no contract (balance only).
     if (baseEntry !== undefined) {
       replacedBaseEntries.push(addr);
       report(`COLLISION ${addr} - REPLACING the base genesis entry with the L1 dump account`);
@@ -442,6 +536,10 @@ async function main() {
   // at the tail; JSON object key order is not significant for geth or for op-node.
   for (const [addr, entry] of pendingBaseAlloc) writeAllocPair(addr, entry);
 
+  for (const addr of protectedBaseCode.keys()) {
+    if (!protectedWritten.has(addr)) throw new Error(`Protected base address ${addr} was not written`);
+  }
+
   writeChunk("\n}\n");
 
   if (outStream !== process.stdout) {
@@ -464,15 +562,22 @@ async function main() {
   );
   report(
     `base genesis entries: ${baseAllocTotal} total, ${carriedOver} carried over, ` +
-      `${replacedBaseEntries.length} replaced by dump accounts`,
+      `${replacedBaseEntries.length} replaced by dump accounts, ` +
+      `${protectedMerges.length} protected contract${protectedMerges.length === 1 ? "" : "s"} merged with an L1 balance, ` +
+      `${protectedBaseCode.size} protected contract${protectedBaseCode.size === 1 ? "" : "s"} verified`,
   );
 
   if (replacedBaseEntries.length > 0) {
     report(`REPLACED ${replacedBaseEntries.length} base genesis entr${replacedBaseEntries.length === 1 ? "y" : "ies"}:`);
     for (const addr of replacedBaseEntries) reportDetail(addr);
+    report("review every one before booting: these base entries held no contract, only a balance");
+  }
+
+  if (protectedMerges.length > 0) {
     report(
-      "review every one before booting: an OP Stack predeploy replaced by an L1 account loses its code and storage",
+      `PROTECTED ${protectedMerges.length} base genesis contract${protectedMerges.length === 1 ? "" : "s"} kept, L1 balance carried over:`,
     );
+    for (const addr of protectedMerges) reportDetail(addr);
   }
 
   if (keptBaseEntries.length > 0) {
@@ -482,7 +587,7 @@ async function main() {
     for (const addr of keptBaseEntries) reportDetail(addr);
   }
 
-  if (replacedBaseEntries.length === 0 && keptBaseEntries.length === 0) {
+  if (replacedBaseEntries.length === 0 && keptBaseEntries.length === 0 && protectedMerges.length === 0) {
     report("no address collisions between the base genesis allocation and the dump");
   }
 }

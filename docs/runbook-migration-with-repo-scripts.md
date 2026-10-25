@@ -217,9 +217,10 @@ rather than leaving truncated JSON behind.
 Checks:
 
 - [ ] `jq empty alloc.json` passes.
-- [ ] Entry count is `base predeploys + dump accounts - pruned empty accounts - replaced base entries`.
-      Replaced entries are the `REPLACED` list in the run summary; 0x0 is one of them whenever it
-      holds state, because op-deployer funds 0x00..00–0x00..ff with 1 wei each:
+- [ ] Entry count is `base predeploys + dump accounts - pruned empty accounts - replaced base entries
+      - protected merges`. Replaced entries are the `REPLACED` list in the run summary; 0x0 is one of
+      them whenever it holds state, because op-deployer funds 0x00..00–0x00..ff with 1 wei each.
+      Protected merges are the `PROTECTED` list:
 
       ```bash
       jq 'length' alloc.json
@@ -238,15 +239,26 @@ Checks:
       ```bash
       echo $(( $(wc -l < alloc.json) - 2 ))
       ```
-- [ ] Every OP Stack predeploy from the base genesis is still present and still carries its code:
+- [ ] Every base genesis entry with code is still present with exactly that code. The converter
+      already enforces this and fails otherwise; this is the independent cross-check, and it must
+      print nothing. Base keys may be written without `0x` (op-deployer does), so they are normalized
+      before the lookup. It reads `alloc.json` once, so it stays fast on a multi-gigabyte file:
 
       ```bash
-      jq -r '.alloc | keys[]' "$WORKDIR/genesis.json" \
-        | while read -r a; do
-            jq -e --arg a "$(echo "$a" | tr 'A-F' 'a-f')" '.[$a].code' alloc.json > /dev/null \
-              || echo "MISSING OR CODELESS: $a"
-          done
+      jq -r '.alloc | to_entries[] | select((.value.code // "0x") != "0x")
+             | "\"0x\(.key | ascii_downcase | ltrimstr("0x"))\""' \
+          "$WORKDIR/genesis.json" > protected-keys.txt
+      awk -F: 'NR == FNR { want[$0] = 1; next } ($1 in want) { sub(/,$/, ""); print }' \
+          protected-keys.txt alloc.json | { echo '{'; paste -sd, -; echo '}'; } > protected-alloc.json
+      jq -r --slurpfile a protected-alloc.json '
+          .alloc | to_entries[] | select((.value.code // "0x") != "0x")
+          | ("0x" + (.key | ascii_downcase | ltrimstr("0x"))) as $k
+          | select((($a[0][$k].code // "none") | ascii_downcase) != (.value.code | ascii_downcase))
+          | "MISSING OR CHANGED CODE: \($k)"' "$WORKDIR/genesis.json"
       ```
+- [ ] Every `COLLISION ... PROTECTED` line in the run log is understood. One for a `0x4200…` or
+      `0xc0d3…` address, or for `0xdead…0000` when the base genesis defines it, means someone funded
+      it on L1; the contract was kept and the balance carried over.
 - [ ] If the zero address holds state at the snapshot block, the run logged `ZERO ADDRESS ... restored`
       and `alloc.json` carries the L1 balance there, not the 1-wei base entry:
 

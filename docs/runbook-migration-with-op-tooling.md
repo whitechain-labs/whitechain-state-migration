@@ -115,16 +115,22 @@ storage are dropped unless `--no-prune-empty` is passed, and a dropped dump acco
 entry for that address intact.
 
 Every address defined by both sides is reported on stderr as a collision, which is why the run above
-captures it to `alloc-collisions.log`. **Read that log before anything else.** A collision means an
-L1 account has taken over an address that the OP Stack had already allocated – for a predeploy that
-means its code and storage are gone from the genesis:
+captures it to `alloc-collisions.log`. **Read that log before anything else.** A base entry with
+code or storage (predeploy, implementation, preinstall) is protected: the L1 account only adds its
+balance and the contract stays, reported as `PROTECTED`. An L1 account there that cannot be merged
+safely (different code, storage, or a nonce without code) fails the run, reported as `REJECTED`
+with both sides before the error. Base entries without code or storage are replaced by the dump
+account, reported as `REPLACING`. Every collision line starts with `COLLISION <address> - <outcome>`:
 
 ```
-dump-to-alloc: COLLISION 0x4200000000000000000000000000000000000007 - REPLACING the base genesis entry with the L1 dump account
+dump-to-alloc: COLLISION 0x4200000000000000000000000000000000000007 - PROTECTED, keeping the base genesis contract, carrying over the L1 balance
 dump-to-alloc:     base: balance=0x0 nonce=0x0 code=10 bytes storage=1 slot(s)
 dump-to-alloc:     dump: balance=0xde0b6b3a7640000 nonce=0x0 code=none storage=none
-dump-to-alloc: base genesis entries: 3 total, 1 carried over, 2 replaced by dump accounts
+dump-to-alloc:     result: balance=0xde0b6b3a7640000 nonce=0x0 code=10 bytes storage=1 slot(s)
 ```
+
+A `COLLISION ... PROTECTED` line for a `0x4200…` or `0xc0d3…` address, or for `0xdead…0000` when
+the base genesis defines it, means someone funded it on L1.
 
 The run also states when there were no collisions at all, so an empty finding is a positive result
 rather than an absence of checking. See
@@ -158,14 +164,21 @@ grep -c '"balance"' ./state_dump_${SNAPSHOT_BLOCK}.json
 grep 'dump accounts:' alloc-collisions.log
 
 # Collisions, straight from the run.
-grep -E 'COLLISION|REPLACED|ZERO ADDRESS|no address collisions' alloc-collisions.log
+grep -E 'COLLISION|REPLACED|PROTECTED|ZERO ADDRESS|no address collisions' alloc-collisions.log
 
-# Independent cross-check: every base entry that had code still has code.
-jq -r '.alloc | to_entries[] | select(.value.code) | .key' "$WORKDIR/genesis.base.json" \
-  | tr 'A-F' 'a-f' \
-  | while read -r a; do
-      grep -q "^\"$a\":.*\"code\"" alloc.json || echo "MISSING OR CODELESS: $a"
-    done
+# Independent cross-check: every base entry with code still has exactly that code. Base keys may be
+# written without 0x (op-deployer does), so they are normalized before the lookup. One pass over
+# alloc.json, so it stays fast on a multi-gigabyte file.
+jq -r '.alloc | to_entries[] | select((.value.code // "0x") != "0x")
+       | "\"0x\(.key | ascii_downcase | ltrimstr("0x"))\""' \
+    "$WORKDIR/genesis.base.json" > protected-keys.txt
+awk -F: 'NR == FNR { want[$0] = 1; next } ($1 in want) { sub(/,$/, ""); print }' \
+    protected-keys.txt alloc.json | { echo '{'; paste -sd, -; echo '}'; } > protected-alloc.json
+jq -r --slurpfile a protected-alloc.json '
+    .alloc | to_entries[] | select((.value.code // "0x") != "0x")
+    | ("0x" + (.key | ascii_downcase | ltrimstr("0x"))) as $k
+    | select((($a[0][$k].code // "none") | ascii_downcase) != (.value.code | ascii_downcase))
+    | "MISSING OR CHANGED CODE: \($k)"' "$WORKDIR/genesis.base.json"
 ```
 
 - [ ] Entry count equals `dump accounts + base predeploys - overlaps - pruned empty accounts`.
