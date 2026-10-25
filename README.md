@@ -15,7 +15,7 @@ is migrated.
 | --- | --- |
 | `scripts/dump-to-alloc.mjs` | Converts a geth state dump (JSONL) into an OP Stack genesis `alloc` map and merges it with the base L2 allocation. |
 | `scripts/insert-alloc-into-config.mjs` | Streams an `alloc` map directly into a genesis config JSON. Legacy path only – on the default path `op-node` regenerates `genesis.json`. |
-| `staterecon/` | Go tooling for post-migration reconciliation: `staterecon` (accounts), `tokenrecon` (tokens), `tokensync` (explorer token metadata). See [staterecon/README.md](staterecon/README.md). |
+| `staterecon/` | Go tooling: `dumpcheck` (state-root verification of the dump and the allocation, run before genesis), and for post-migration reconciliation `staterecon` (accounts), `tokenrecon` (tokens), `tokensync` (explorer token metadata). See [staterecon/README.md](staterecon/README.md). |
 | `soul-verification/` | Hardhat/Mocha RPC tests comparing SoulDrop / Soul registry state between the pre-migration and post-migration deployments. See [soul-verification/README.md](soul-verification/README.md). |
 | `docs/` | Step-by-step migration runbooks and the verification runbook. |
 
@@ -119,6 +119,11 @@ Behaviour worth knowing:
   allocation is held in memory, so peak memory does not grow with the size of the state dump.
 - A run that fails part-way deletes its partial `--output` file rather than leaving truncated,
   syntactically invalid JSON behind.
+- A dump without accounts (header only, or empty) fails the run instead of producing an allocation
+  that holds only the base genesis.
+- The summary includes the exact balance sums of the dump and of the allocation, in wei. The
+  converter does not check the dump's state root; `staterecon/dumpcheck` does, and verifies the
+  allocation against the dump. See [staterecon/README.md](staterecon/README.md).
 
 ### `scripts/insert-alloc-into-config.mjs`
 

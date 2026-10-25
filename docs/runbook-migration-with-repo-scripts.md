@@ -43,7 +43,11 @@ export WORKDIR=$(pwd)/.deployer
       (`--p2p.peerstore.path`, `--p2p.discovery.path`, `--safedb.path`).
 - [ ] P2P ports open (TCP + UDP) on the sequencer and RPC nodes.
 - [ ] The L1 node that will be dumped is a **full, non-pruned** node, synced with
-      `--cache.preimages`, with the `debug` API or IPC available.
+      `--cache.preimages`, with the `debug` API or IPC available. Preimages are only recorded while
+      the flag is on: a node that ran without it at any point, or that was snap-synced, lacks the
+      address of every account it has not touched since. `dumpcheck` (Step 4) detects this; finding
+      it at the freeze is too late, so run Step 4 once against the node well before the freeze.
+- [ ] `dumpcheck` built: `cd staterecon && go build -o dumpcheck ./cmd/dumpcheck`.
 - [ ] Backup destination prepared for `state_dump.json`, `alloc.json`, `genesis.json`, `rollup.json`.
 - [ ] Communication plan agreed for the L1 read-only window.
 
@@ -179,21 +183,34 @@ docker run --rm \
   --wbt-testnet \
   --cache.preimages \
   --datadir /root/.ethereum \
-  dump "$BLOCK" > "$OUTPUT"
+  dump --incompletes "$BLOCK" > "$OUTPUT"
 ```
+
+`--incompletes` makes geth write an account whose address it does not know (missing preimage) as
+a record with only its hashed key, instead of silently leaving it out with nothing but a warning
+in the node log. `dumpcheck` and `dump-to-alloc.mjs` then fail on that record. The zero address is
+the one expected record without an address and is restored from its key.
 
 Expect 40–90 minutes depending on state size. Progress lines look like
 `INFO Trie dumping in progress accounts=...`.
 
 Validate the dump before going further:
 
-- [ ] The `root` in the dump header line equals the `stateRoot` of the snapshot block.
+- [ ] `dumpcheck` passes. **This is a stop condition.** The `root` in the dump header is the root of
+      the state geth iterated, so on its own it only proves which block was dumped: an incomplete
+      dump carries the same header. `dumpcheck` recomputes the state root from the dumped accounts,
+      every storage root and every code hash, and requires the header to equal the `stateRoot`
+      recorded in Step 3:
 
       ```bash
-      head -1 "$OUTPUT" | jq -r .root
+      ./staterecon/dumpcheck --dump "$OUTPUT" --expected-root <SNAPSHOT_STATE_ROOT>
       ```
-- [ ] Account count, contract count and the sum of balances are recorded and the balance sum matches
-      the known native supply.
+
+      Any reported problem means accounts or storage slots are missing or altered, or an account
+      has no address (missing preimage). Do not continue with that dump.
+- [ ] Account count, contract count and the exact balance sum (`accounts`, `contracts`,
+      `balance_sum_wei` in the `dump checked` line) are recorded, and the balance sum matches the
+      known native supply. Do not sum balances with `jq`: it loses precision above 2^53.
 - [ ] `state_dump_<BLOCK>.json` is backed up off-host before any further processing.
 
 Restart the L1 node in read-only mode once the dump is safely copied. Keep an archive L1 RPC
@@ -265,6 +282,18 @@ Checks:
       ```bash
       grep '^"0x0000000000000000000000000000000000000000":' alloc.json
       ```
+- [ ] `dumpcheck` verifies the allocation against the dump and the base genesis. **This is a stop
+      condition.** Every entry must be the dump account, a protected base contract with the L1
+      balance added, or a base entry; every non-empty dump account and every base entry must be
+      present; and the allocation balance sum must be the dump sum plus the retained base balances:
+
+      ```bash
+      ./staterecon/dumpcheck --dump "./state_dump_${BLOCK}.json" --expected-root <SNAPSHOT_STATE_ROOT> \
+        --genesis "$WORKDIR/genesis.json" --alloc ./alloc.json
+      ```
+
+      It ends with `dump and allocation verified`. The `balance sums` line of the converter and
+      `alloc_balance_sum_wei` must agree.
 - [ ] Spot-check a few high-value L1 accounts: balance, nonce, code and a known storage slot.
 - [ ] `alloc.json` is backed up.
 

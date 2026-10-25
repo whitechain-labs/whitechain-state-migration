@@ -29,6 +29,7 @@ staterecon/config/token-config.yml
 staterecon/staterecon
 staterecon/tokenrecon
 staterecon/tokensync
+staterecon/dumpcheck
 
 # Node / Hardhat
 node_modules/

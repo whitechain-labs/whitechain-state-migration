@@ -351,6 +351,10 @@ async function main() {
   // Dump accounts read and pruned, so the entry count can be checked against the run itself.
   let dumpAccounts = 0;
   let prunedAccounts = 0;
+  // Exact balance sums in wei, so the native supply can be checked without floating-point tools
+  // (jq loses precision above 2^53).
+  let dumpBalanceSum = 0n;
+  let allocBalanceSum = 0n;
   let zeroAddressRecovered = false;
 
   const outputPath = args.output ? path.resolve(process.cwd(), args.output) : undefined;
@@ -397,6 +401,7 @@ async function main() {
       }
       protectedWritten.add(addr);
     }
+    allocBalanceSum += BigInt(toHexQuantity(entry.balance ?? "0"));
     writeChunk(`${firstEntry ? "" : ",\n"}"${addr}":${JSON.stringify(entry)}`);
     firstEntry = false;
   };
@@ -416,6 +421,7 @@ async function main() {
     dumpAccounts++;
     const balance = toHexQuantity(obj.balance ?? "0");
     const nonce = toHexQuantity(obj.nonce ?? "0");
+    dumpBalanceSum += BigInt(balance);
 
     let code = undefined;
     if (obj.code !== undefined && obj.code !== null) {
@@ -532,6 +538,12 @@ async function main() {
     rl.on("error", fail);
   });
 
+  // A dump without accounts (only the header line, or an empty file) would otherwise produce a
+  // "successful" allocation holding nothing but the base genesis.
+  if (dumpAccounts === 0) {
+    throw new Error("The dump contains no accounts; refusing to build an allocation without L1 state");
+  }
+
   // Base allocation entries the dump did not replace. The dump is streamed first, so these end up
   // at the tail; JSON object key order is not significant for geth or for op-node.
   for (const [addr, entry] of pendingBaseAlloc) writeAllocPair(addr, entry);
@@ -560,6 +572,7 @@ async function main() {
       `${dumpAccounts - prunedAccounts} written` +
       (zeroAddressRecovered ? " (including the zero address restored from its trie key)" : ""),
   );
+  report(`balance sums: dump ${dumpBalanceSum} wei, allocation ${allocBalanceSum} wei`);
   report(
     `base genesis entries: ${baseAllocTotal} total, ${carriedOver} carried over, ` +
       `${replacedBaseEntries.length} replaced by dump accounts, ` +

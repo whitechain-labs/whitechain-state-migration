@@ -96,8 +96,11 @@ predeploy-only genesis by mistake.
 
 ## Step 3. Combine the L1 dump with the base allocation `[A] + [B] -> [C]`
 
-`state_dump.json` comes from the L1 freeze-and-dump procedure and must already be validated: its
-header `root` equals the `stateRoot` of the snapshot block.
+`state_dump.json` comes from the L1 freeze-and-dump procedure (taken with `geth dump --incompletes`)
+and must already be validated with `dumpcheck`, which recomputes the state root from the dumped
+accounts and compares it with the snapshot block's `stateRoot`. Comparing only the header `root`
+proves nothing about completeness: geth writes the root of the state it iterated, whatever it
+skipped.
 
 ```bash
 node scripts/dump-to-alloc.mjs \
@@ -153,6 +156,11 @@ it can be inspected with line tools instead of loading it into `jq`.
 ### Checks
 
 ```bash
+# Stop condition: the allocation against the dump and the base genesis, entry by entry, plus the
+# dump's own state root. Ends with "dump and allocation verified".
+./staterecon/dumpcheck --dump ./state_dump_${SNAPSHOT_BLOCK}.json --expected-root <SNAPSHOT_STATE_ROOT> \
+  --genesis "$WORKDIR/genesis.base.json" --alloc alloc.json
+
 # Structure: first and last lines are the bare braces, entries in between.
 head -1 alloc.json                       # {
 tail -1 alloc.json                       # }
@@ -181,6 +189,7 @@ jq -r --slurpfile a protected-alloc.json '
     | "MISSING OR CHANGED CODE: \($k)"' "$WORKDIR/genesis.base.json"
 ```
 
+- [ ] `dumpcheck` ends with `dump and allocation verified`. Any problem it lists is a stop condition.
 - [ ] Entry count equals `dump accounts + base predeploys - overlaps - pruned empty accounts`.
 - [ ] The collision log is read and every entry accounted for, or it reports no collisions.
 - [ ] The cross-check prints nothing. Anything it prints is a base entry whose code was dropped, and
