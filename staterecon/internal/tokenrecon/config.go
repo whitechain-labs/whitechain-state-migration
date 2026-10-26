@@ -1,6 +1,6 @@
 package tokenrecon
 
-import "github.com/whitechainio/whitechain-utils/staterecon/internal/tokenconfig"
+import "github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/tokenconfig"
 
 type TokenConfig = tokenconfig.Entry
 type Config = tokenconfig.Config

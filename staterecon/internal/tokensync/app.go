@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/models"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/models"
 )
 
 // Run loads token addresses, fetches metadata from the legacy explorer, and syncs it into Blockscout.

@@ -9,9 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
-
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/models"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/models"
 )
 
 func (c *Client) AccountRange(ctx context.Context, block string, start string, maxResults int) (AccountRangePage, error) {
@@ -32,7 +30,9 @@ func (c *Client) AccountRange(ctx context.Context, block string, start string, m
 	}
 
 	var raw json.RawMessage
-	params := []any{block, start, maxResults, false, true, false}
+	// incompletes=true: an account whose address preimage the node lacks is returned (keyed by its
+	// hash) instead of silently left out, and then fails parsing below.
+	params := []any{block, start, maxResults, false, true, true}
 	err := c.Call(ctx, "debug_accountRange", params, &raw)
 	if err == nil {
 		return parseAccountRangePage(raw)
@@ -60,13 +60,11 @@ func parseAccountRangePage(raw json.RawMessage) (AccountRangePage, error) {
 
 	accounts := make([]models.AccountSnapshot, 0, len(entries))
 	for _, key := range keys {
+		// An account that cannot be parsed cannot be reconciled; skipping it would report a clean
+		// run over an incomplete account set.
 		account, err := parseAccountEntry(key, entries[key])
 		if err != nil {
-			log.WithFields(log.Fields{
-				"key":   key,
-				"error": err,
-			}).Warn("parse account entry failed")
-			continue
+			return AccountRangePage{}, fmt.Errorf("account entry %q (an address-less pre(...) key means a missing preimage on the L1 node): %w", key, err)
 		}
 		if account == nil {
 			continue

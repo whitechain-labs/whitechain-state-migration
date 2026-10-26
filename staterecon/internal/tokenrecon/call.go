@@ -7,8 +7,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/models"
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/rpc"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/models"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/rpc"
 )
 
 type ethCallMsg struct {

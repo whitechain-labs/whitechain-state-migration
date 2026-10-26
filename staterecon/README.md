@@ -4,7 +4,9 @@
 
 ## Reconciliation Algorithm
 
-1. Reads accounts from L1 using `debug_accountRange` page-by-page.
+1. Reads accounts from L1 using `debug_accountRange` page-by-page, with `incompletes=true`. An
+   account the L1 node has no address for (missing preimage) comes back under a `pre(<hash>)` key
+   and fails the run instead of being silently left out; so does any entry that cannot be parsed.
 2. Processes accounts in chunks and writes CSV rows immediately (streaming, no full-state buffering).
 3. For every account compares:
    - native `balance` (L1 `debug_accountRange` vs L2 `eth_getBalance`)
@@ -18,10 +20,43 @@
 
 ```bash
 cd staterecon
+go build -o dumpcheck ./cmd/dumpcheck
 go build -o staterecon ./cmd/staterecon
 go build -o tokenrecon ./cmd/tokenrecon
 go build -o tokensync ./cmd/tokensync
 ```
+
+## dumpcheck — Dump and Allocation Verification
+
+Runs before genesis, on files only (no RPC). The header `root` of a `geth dump` is the root of the
+state geth iterated, not a value derived from what it wrote, so it cannot show that the dump is
+complete. `dumpcheck` recomputes it:
+
+```bash
+./dumpcheck --dump state_dump_<BLOCK>.json --expected-root <SNAPSHOT_STATE_ROOT>
+```
+
+- Recomputes the account trie root from the dumped accounts and requires it to equal the dump
+  header, and the header to equal `--expected-root` (the snapshot block's `stateRoot`).
+- Recomputes every account's storage root from its dumped slots and every code hash from its code.
+- Fails on accounts without an address (missing preimage; dump with `--incompletes` so geth writes
+  them instead of skipping them). The zero address, which older geth writes without an address, is
+  restored from its key.
+- Fails on duplicate or out-of-order accounts, a second header line, or a dump without accounts.
+- Prints the account and contract counts and the exact balance sum in wei.
+
+With `--genesis` and `--alloc` it also verifies the allocation written by `dump-to-alloc.mjs`, entry
+by entry: each entry must be the dump account, a protected base contract with the L1 balance added
+(`PROTECTED`), or a base entry; every non-empty dump account and every base entry must be present;
+and the allocation balance sum must equal the dump sum plus the retained base balances.
+
+```bash
+./dumpcheck --dump state_dump_<BLOCK>.json --expected-root <SNAPSHOT_STATE_ROOT> \
+  --genesis genesis.base.json --alloc alloc.json
+```
+
+It ends with `dump and allocation verified` and exits 0, or lists every problem and exits non-zero.
+The allocation check holds every dump account in memory (roughly 150 bytes each).
 
 ## staterecon — Account State Reconciliation
 
