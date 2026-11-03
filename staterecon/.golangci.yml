@@ -41,7 +41,7 @@ linters-settings:
         arguments: ["before-block", 0]
 
   goimports:
-    local-prefixes: github.com/whitechainio/whitechain-utils/staterecon
+    local-prefixes: github.com/whitechain-labs/whitechain-state-migration/staterecon
 
   gocyclo:
     min-complexity: 10

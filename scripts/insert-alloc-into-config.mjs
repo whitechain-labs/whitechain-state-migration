@@ -103,6 +103,32 @@ function scanJsonValueEnd(s, start) {
   return depth === 0 && !inString ? s.length : -1;
 }
 
+/**
+ * Balance of an alloc entry (raw JSON text or parsed object) for the skip log. Logging must never be
+ * the thing that fails a run, so anything unreadable degrades to a placeholder.
+ */
+function entryBalance(entry) {
+  try {
+    const obj = typeof entry === "string" ? JSON.parse(entry) : entry;
+    return obj && obj.balance !== undefined ? String(obj.balance) : "<none>";
+  } catch {
+    return "<unreadable>";
+  }
+}
+
+/**
+ * Compare two `entryBalance` results by value, so `0x1`, `0x01` and `1` count as equal. A missing
+ * balance is zero, as in geth. Anything that is not a number is compared as text.
+ */
+function balancesDiffer(a, b) {
+  const toBigInt = (s) => (s === "<none>" ? 0n : BigInt(s));
+  try {
+    return toBigInt(a) !== toBigInt(b);
+  } catch {
+    return a !== b;
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help || !args.config || !args.alloc) {
@@ -238,6 +264,10 @@ async function main() {
   const trackStats = args.stats;
   let added = trackStats ? 0 : undefined;
   let skipped = trackStats ? 0 : undefined;
+  // Skipped alloc entries split by balance, counted regardless of `--stats` so the skip log can
+  // always be closed with a summary.
+  let skippedSameBalance = 0;
+  let skippedDifferentBalance = 0;
   let entriesProcessed = 0;
   let lineNo = 0;
 
@@ -364,6 +394,18 @@ async function main() {
       if (!args.overwriteExisting) {
         if (Object.prototype.hasOwnProperty.call(config.alloc, outKey)) {
           if (trackStats) skipped++;
+          const allocBalance = entryBalance(valueJson);
+          const configBalance = entryBalance(config.alloc[outKey]);
+          if (!balancesDiffer(allocBalance, configBalance)) {
+            skippedSameBalance++;
+          } else {
+            skippedDifferentBalance++;
+            // eslint-disable-next-line no-console
+            console.error(
+              `insert-alloc-into-config: SKIPPED ${outKey} alloc balance=${allocBalance} ` +
+                `(kept existing config balance=${configBalance})`,
+            );
+          }
           return;
         }
         if (trackStats) added++;
@@ -408,6 +450,18 @@ async function main() {
   if (trackStats) {
     // eslint-disable-next-line no-console
     console.error(`insert-alloc-into-config: added=${added} skipped(existing)=${skipped}`);
+  }
+
+  // Closes the skip log: without it, the absence of SKIPPED lines would not show whether the other
+  // skipped entries were checked.
+  const skippedTotal = skippedSameBalance + skippedDifferentBalance;
+  if (skippedTotal > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `insert-alloc-into-config: skipped ${skippedTotal} existing config.alloc entr${skippedTotal === 1 ? "y" : "ies"}: ` +
+        `${skippedDifferentBalance} with a different balance (listed above as SKIPPED), ` +
+        `${skippedSameBalance} with the same balance as the alloc file (balance unaffected)`,
+    );
   }
 }
 

@@ -19,9 +19,9 @@ prestate*.json
 
 # Reconciliation output
 *.csv
-out/
-token_out/
-output/
+./out/
+./token_out/
+./output/
 
 # Tooling configs derived from examples
 staterecon/config/config.yml
@@ -29,6 +29,7 @@ staterecon/config/token-config.yml
 staterecon/staterecon
 staterecon/tokenrecon
 staterecon/tokensync
+staterecon/dumpcheck
 
 # Node / Hardhat
 node_modules/

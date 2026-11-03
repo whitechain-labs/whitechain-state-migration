@@ -8,9 +8,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/models"
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/output"
-	"github.com/whitechainio/whitechain-utils/staterecon/internal/rpc"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/models"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/output"
+	"github.com/whitechain-labs/whitechain-state-migration/staterecon/internal/rpc"
 )
 
 func (s *Summary) merge(other *batchSummary) {

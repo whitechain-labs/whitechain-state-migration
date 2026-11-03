@@ -15,7 +15,7 @@ is migrated.
 | --- | --- |
 | `scripts/dump-to-alloc.mjs` | Converts a geth state dump (JSONL) into an OP Stack genesis `alloc` map and merges it with the base L2 allocation. |
 | `scripts/insert-alloc-into-config.mjs` | Streams an `alloc` map directly into a genesis config JSON. Legacy path only – on the default path `op-node` regenerates `genesis.json`. |
-| `staterecon/` | Go tooling for post-migration reconciliation: `staterecon` (accounts), `tokenrecon` (tokens), `tokensync` (explorer token metadata). See [staterecon/README.md](staterecon/README.md). |
+| `staterecon/` | Go tooling: `dumpcheck` (state-root verification of the dump and the allocation, run before genesis), and for post-migration reconciliation `staterecon` (accounts), `tokenrecon` (tokens), `tokensync` (explorer token metadata). See [staterecon/README.md](staterecon/README.md). |
 | `soul-verification/` | Hardhat/Mocha RPC tests comparing SoulDrop / Soul registry state between the pre-migration and post-migration deployments. See [soul-verification/README.md](soul-verification/README.md). |
 | `docs/` | Step-by-step migration runbooks and the verification runbook. |
 
@@ -97,8 +97,13 @@ Behaviour worth knowing:
 
 - Addresses are lowercased and `0x`-prefixed; balances and nonces become hex quantities; storage keys
   and values are left-padded to 32 bytes.
-- Dump entries **overwrite** entries of the same address in the base genesis allocation. Verify after
-  the merge that every OP Stack predeploy (`0x42000000000000000000000000000000000000xx`) survived.
+- A base genesis entry with code or storage (OP Stack predeploy, implementation, preinstall) is
+  **never overwritten**: an L1 account at that address only adds its balance, and one that cannot be
+  merged safely fails the run. Base entries without code or storage are overwritten by the dump
+  account. See [Known limitations](#known-limitations).
+- geth's dump writes the zero-address account without an `address` field. The converter restores it
+  from its trie key and reports `ZERO ADDRESS ... restored`; any other record without an address is a
+  missing preimage and fails the run, so no account is dropped silently.
 - The output is a JSON object written with **one alloc entry per line**:
 
   ```json
@@ -114,6 +119,11 @@ Behaviour worth knowing:
   allocation is held in memory, so peak memory does not grow with the size of the state dump.
 - A run that fails part-way deletes its partial `--output` file rather than leaving truncated,
   syntactically invalid JSON behind.
+- A dump without accounts (header only, or empty) fails the run instead of producing an allocation
+  that holds only the base genesis.
+- The summary includes the exact balance sums of the dump and of the allocation, in wei. The
+  converter does not check the dump's state root; `staterecon/dumpcheck` does, and verifies the
+  allocation against the dump. See [staterecon/README.md](staterecon/README.md).
 
 ### `scripts/insert-alloc-into-config.mjs`
 
@@ -144,13 +154,25 @@ node scripts/insert-alloc-into-config.mjs \
 1. **Empty accounts are pruned by default.** Accounts with zero balance, zero nonce, no code and no
    storage are dropped unless `--no-prune-empty` is passed. Account counts between the dump and the
    allocation will therefore differ by that number.
-2. **On an address collision the L1 dump wins.** An address defined by both the base L2 allocation
-   and the L1 dump is a collision, and the dump account replaces the base entry – so an OP Stack
-   predeploy hit this way loses its code and storage. The one exception is a dump account that is
-   empty and gets pruned: the base entry survives.
+2. **On an address collision, base contracts are protected.** An address defined by both the base L2
+   allocation and the L1 dump is a collision. What happens depends on the base entry:
+
+   | Base entry | L1 dump account | Result |
+   | --- | --- | --- |
+   | Code or storage (protected) | Balance only, or the same code | Base contract kept, L1 balance added to it (`PROTECTED`) |
+   | Code or storage (protected) | Different code, any storage, or a nonce without code | **Run fails** – resolve by hand (`REJECTED`) |
+   | Neither code nor storage | Anything non-empty | Dump account replaces it (`REPLACING`) |
+   | Anything | Empty, pruned | Base entry survives (`keeping the base genesis entry`) |
+
+   Anyone can fund an OP Stack address on L1 for 1 wei, so an L1 account is never allowed to replace
+   a contract the OP Stack owns. Adding its balance keeps the native supply unchanged. Before the run
+   succeeds, the converter checks that every protected base address was written exactly once with
+   its base code.
 
    `dump-to-alloc.mjs` reports every collision on stderr as it happens, with a before/after summary,
-   repeats the full list at the end of the run, and states explicitly when there were none. Capture
+   repeats the full list at the end of the run, and states explicitly when there were none. Every
+   collision line, including the one that fails a run, starts with `COLLISION <address> - <outcome>`,
+   so `grep COLLISION` lists them all. Capture
    it and read it before booting anything:
 
    ```bash
@@ -162,25 +184,24 @@ node scripts/insert-alloc-into-config.mjs \
    ```
 
    ```
-   dump-to-alloc: COLLISION 0x4200000000000000000000000000000000000007 - REPLACING the base genesis entry with the L1 dump account
+   dump-to-alloc: COLLISION 0x4200000000000000000000000000000000000007 - PROTECTED, keeping the base genesis contract, carrying over the L1 balance
    dump-to-alloc:     base: balance=0x0 nonce=0x0 code=10 bytes storage=1 slot(s)
    dump-to-alloc:     dump: balance=0xde0b6b3a7640000 nonce=0x0 code=none storage=none
-   dump-to-alloc: base genesis entries: 3 total, 1 carried over, 2 replaced by dump accounts
+   dump-to-alloc:     result: balance=0xde0b6b3a7640000 nonce=0x0 code=10 bytes storage=1 slot(s)
    ```
 
-   Two groups of addresses are exposed, and they carry very different risk:
+   Two groups of protected addresses are exposed on L1:
 
-   - **OP Stack predeploys**, `0x42000000000000000000000000000000000000xx` plus
-     `0xDeadDeAddeAddEAddeadDEaDDEAdDeaDDeAD0000`. Nobody holds a key for these, but anyone can send
-     WBT to one on L1, which creates a codeless account that the dump then carries over and that
-     silently overwrites the predeploy. This is the dangerous case.
+   - **OP Stack predeploys and implementations**, the `0x4200…0000`–`0x4200…07ff` proxies, the
+     `0xc0D3C0d3…` implementations, and `0xDeadDeAddeAddEAddeadDEaDDEAdDeaDDeAD0000` when the base
+     genesis defines it. Nobody holds a key for these, but anyone can send WBT to one on L1. The converter keeps the contract and carries the balance over; a `COLLISION ... PROTECTED`
+     line for one of them means someone funded it.
    - **Preinstalls at ordinary addresses** – Multicall3 `0xcA11bde05977b3631167028862bE2a173976CA11`,
      Create2Deployer `0x13b0D85CcB8bf860b6b79AF3029fCA081AE9beF2`, DeterministicDeploymentProxy
      `0x4e59b44847b379578588920cA78FbF26c0B4956C`, Permit2, the Safe singletons, the ERC-4337
-     EntryPoints, CreateX. These are deployed at the same address on every EVM chain, so if any of
-     them exists on Whitechain L1 the collision is expected rather than exceptional. Compare the
-     bytecode on both sides: identical code means the collision is harmless, different code means
-     the L1 version is about to become the L2 version.
+     EntryPoints, CreateX. These are deployed at the same address on every EVM chain, so one may
+     already exist on Whitechain L1. With identical code the collision is merged as `PROTECTED`;
+     with different code the run fails, because the L1 version would otherwise become the L2 one.
 
    The authoritative list for a given deployment is not this document but the base allocation
    itself: `jq -r '.alloc | keys[]' genesis.base.json`.
